@@ -126,7 +126,7 @@ class SimpleGame():
 			self.show_sequence(seq)
 			no = 0
 			while not joy.Back():
-				inpt = [joy.A(), joy.B(), joy.X()]
+				inpt = [joy.A(), joy.B(), joy.X(), joy.X()]
 				pick = [inpt.index(el) for el in inpt if el]
 				if pick:
 					if len(pick)==1 and seq[no]==pick[0]:
@@ -170,39 +170,62 @@ def polar_coords(x,y):
 		angle += 360.0
 	return angle, radius
 			
+def joystick_mainloop(joy, LEDC):
+	current_led = 0
+	while 1:
+		if joy.Back():
+			joy.close()
+			break
+		elif joy.dpadDown():
+			input_mode = 'k'
+			break
+		elif joy.dpadRight():
+			LEDC.phase([current_led], 0.3)
+			LEDC.stop()
+			current_led = (current_led + 1) % 4
+		elif joy.dpadLeft():
+			LEDC.phase([current_led], 0.3)
+			LEDC.stop()
+			current_led = (current_led - 1) % 4
+		elif joy.leftTrigger():
+			LEDC.phase([current_led], 1.01-joy.leftTrigger())
+			LEDC.stop()			
+		elif joy.Start():
+			sg = SimpleGame(LEDController)
+			sg.run()
+			
+		inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
+		LEDC.phase([i for i in range(4) if inpt[i]])
+		
+		#x, y = joy.leftStick()
+		#angle, radius = polar_coords(x,y)
+		time.sleep(0.001)
+
+			
 if __name__ == '__main__':
 	#sudo python ~/Documents/scipts/lights.py
 	LEDController = LedControllerBase(5, 6, 12) #, 24, 23, 22 
-	print("initialized traffic lights controller")
-		
-	input_mode = raw_input("Chose input...\nj - controller \nk - keyboard\n ")
-	if input_mode == 'j':
+	print("initialized led-controller")
+	try:
 		import xbox
 		joy = xbox.Joystick()
-		
-		while 1:
-			if joy.Back():
-				joy.close()
-				break
-			if joy.Start():
-				sg = SimpleGame(LEDController)
-				sg.run()
-				
-			inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
-			LEDController.phase([i for i in range(4) if inpt[i]])
-			
-			#x, y = joy.leftStick()
-			#angle, radius = polar_coords(x,y)
-			time.sleep(0.001)
-		LEDController.stop()
-		GPIO.cleanup()
-			
+		input_mode = 'j'
+	except:
+		print('Cannot import xbox script. \nPress "h" for solutions.')
+		input_mode = raw_input("Chose input...\nj - controller \nk - keyboard\n ")
+	
+	if input_mode == 'j':
+		joystick_mainloop(joy, LEDController)	
+
 	elif input_mode == 'k':
 		while 1:
 			mode = raw_input("Chose mode: ")
 			if mode == 'n':
 				LEDController.normal_mode()
 				LEDController.stop()					
+			elif mode == 's':				
+				LEDController = LedControllerBase(5, 6, 12) #, 24, 23, 22 
+	
 			elif mode == 'd':
 				LEDController.disco_mode()	
 				LEDController.stop()	
@@ -213,6 +236,9 @@ if __name__ == '__main__':
 				tlc.progress_mode()	
 				tlc.stop()	
 			elif mode == 'x':			
-				GPIO.cleanup()
-				print("Strg + c to close program")
-		
+				LEDController.stop()	
+				break
+				
+	print("Goodbye")			
+	LEDController.stop()
+	GPIO.cleanup()		
