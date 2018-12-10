@@ -1,21 +1,32 @@
+# led-control
 
 Control LEDs plugged to a Raspberry Pi using a gamepad/xbox-controller or 
 your keyboard. If using a gamepad, you can access a simple game.
 
+The simple game is a sort of LED memory. Starting with three, each round LEDs 
+will light up. The player has to memorize in which order the LEDs light up. 
+When the sequence is shown, the player has to repeat it using the gamepad 
+buttons A, B, X and Y. If the sequence was repeated correctly, you will get 
+a new sequence with one more LED lighting up. 
+
+This repo can also be a starting point for any other "control"-like project 
+on the RPi, e.g. a robot.
 
 # Components
 
-Raspberry Pi
+ - Raspberry Pi
 
-Breadboard
+ - Breadboard
 
-LEDs
+ - LEDs
 
-Resistor 470R
+ - Resistor 470R
 
-Jumper Cable
+ - Jumper Cable
 
-XBox controller 
+ - XBox controller or comparable gamepad
+ 
+ - USB-dongle if it is a wireless gamepad
 
 
 # Installation
@@ -23,33 +34,33 @@ XBox controller
 ## Hardware
 
 Use the image circuit.jpg to prepare the proper circuit. Double check it before 
-plugging the jumper cables to your raspberry pi.
+plugging the jumper cables to your raspberry pi. 
 
 ## Software
 
 Open a terminal on your RPi
-
+```
 sudo apt-get update
-
 sudo apt-get install xboxdrv
-
+```
 Plug in the controller dongle and start the controller.
-
+```
 sudo xboxdrv --detach-kernel-driver
+```
+The values of the gamepad buttons are printed to console. Hit some buttons and 
+verify that the console output adapts. If it does hit `Strc+c` to quit this test 
+mode otherwise see e.g. [tutorials-raspberrypi](https://tutorials-raspberrypi.de) 
+or the [FRC4564/Xbox](https://github.com/FRC4564/Xbox) repository for details 
+and some problem solving. 
 
-The values of the controller buttons are printed to console. 
-Pressing controller buttons should show a response in the console.
+Go to your projects folder, clone or download this repository and cd into it.
 
-Hit "Strc+c" to quit this test mode.
-
-See e.g. [tutorials-raspberrypi](tutorials-raspberrypi.de) or the FRC4564/Xbox repository for details.
-
-Clone or download this repository and cd into it.
-  
+```
+cd ~/Projects
+git clone https://github.com/der-spaete-jo/led-control  
 cd led-control
-
 sudo python lights.py
-
+```
 
 # Gamepad Control
 
@@ -95,6 +106,16 @@ X - LED 3
 
 Y - LED 4
 
+### A Word Of Warning
+
+After a simple game started, gamepad commands will only be processed during the 
+players "turn". This is True for A, B, X, Y, but most importantly also for 
+the Back button. This means you cannot quit the game, when the game is  
+showing you a sequence. (This is not a feature, but rather bad design.)
+
+# Keyboard Control
+
+Please start the script, choose keyboard as your input mode and hit "h".
 
 # Issues
 
@@ -111,9 +132,13 @@ gamepad. Switch it to "D" and then back to "X".
 When chosing gamepad control via the keyboard command "j", sometimes nothing 
 happens. Just issue the command again in this case.
 
+When closing the application with the Back button and then restarting it via 
+```sudo python lights.py```, sometimes the game is closed instantly after 
+starting. Just issue the command again in this case.
+
 
 # Thanks
 
 Thanks to Steven Jacobs for his xbox python module FRC4564/Xbox. 
-Thanks to Felix at [tutorials-raspberrypi](tutorials-raspberrypi.de) for his wonderful tutorials 
+Thanks to Felix at [tutorials-raspberrypi](https://tutorials-raspberrypi.de) for his wonderful tutorials 
 which encuraged me to buy a RPi and are a great source for inspiration.
