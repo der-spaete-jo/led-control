@@ -4,29 +4,33 @@ import RPi.GPIO as GPIO
 import time
 import math
 import random
-from multiprocessing.dummy import Pool as ThreadPool 
+from itertools import chain, combinations
 
-import xbox
-
-
+# Global Constants
+# Feel free to adjust them to your needs. You may specify more or less than 
+# four GPIO Pins. GPIO_PIN_1 should be the LED furthest to the left. GPIO_PIN_2 
+# should be the LED next to the first one, and so on.
+# GPIO related
+GPIO_PIN_NUMBER_MODE = 1 # 1 for GPIO.BCM, 0 for the other
 GPIO_PIN_1 = 16
 GPIO_PIN_2 = 5
 GPIO_PIN_3 = 25
 GPIO_PIN_4 = 22
-LED_COUNT = 4
+# Game related
+GAME_SPEED_RECIPROCALS = [0.7, 1, 1.3, 1.6]
+TIME_DECREASE_TABLE = [2, 1.5, 1.25, 1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5, 0.45, 0.4]
 
-GAME_SPEED_RECIPROCALS = [0.75, 1, 1.5, 2]
-
-
-MAIN_LOOP_DELAY = 0.001
+INPUT_LOOP_DELAY = 0.001
 GAME_SHOW_DELAY = 0.6
 GAME_INPUT_DELAY = 0.3
 STD_DELAY = 0.15
 
 
+
 class LedControllerBase():
 	def __init__(self, *args):
 		self.pins = [a for a in args]
+		self.led_indices = list(range(len(self.pins)))
 		self.post_init()
 		
 	def post_init(self):
@@ -38,24 +42,22 @@ class LedControllerBase():
 			GPIO.setup(p, GPIO.OUT)
 		
 	def phase(self, code, delay=0):		
+		""" Light up all specified LEDs.
+			<code> is a list of numbers corresponding to the indices of the list self.pins, 
+			i.e. 1 correspondes to the LED plugged to GPIO_PIN_2 """
 		status = [GPIO.HIGH if self.pins.index(p) in code else GPIO.LOW for p in self.pins]
 		map(lambda a: GPIO.output(*a), zip(self.pins, status))
 		time.sleep(delay)
-		"""for p in self.pins:
-			if self.pins.index(p) in code:
-				GPIO.output(p, GPIO.HIGH)
-			else:
-				GPIO.output(p, GPIO.LOW)"""
 			
 		
 	def test(self):
 		for i in range(len(self.pins)):
-			self.blink([i], 0.3)
+			self.blink([i], STD_DELAY)
 		self.stop()
 		return time.time
 		
 			
-	def blink(self, code, delay1=0.5, delay2=0, rounds=1):
+	def blink(self, code, delay1=STD_DELAY, delay2=0, rounds=1):
 		for i in range(rounds):
 			self.phase(code)
 			time.sleep(delay1)
@@ -65,8 +67,8 @@ class LedControllerBase():
 		
 		
 	def disco_mode(self, rounds=100):
-		print("DISCO")
-		comb = [[0], [1], [2], [3], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3], [0, 1, 3]]
+		comb = list(chain.from_iterable(combinations(self.led_count, r) for r in range(len(self.led_count))))
+		#comb = [[], [0], [1], [2], [3], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3], [0, 1, 3]] for 4 pins
 		for i in range(rounds):
 			s = random.random()				
 			self.phase(random.choice(comb))
@@ -75,7 +77,7 @@ class LedControllerBase():
 		return time.time
 		
 	
-	def raupe(self, delay=0.3, rounds=20, rev=False):
+	def raupe(self, delay=STD_DELAY, rounds=20, rev=False):
 		pc = len(self.pins)
 		for i in range(rounds):
 			for j in range(pc):
@@ -129,36 +131,34 @@ class LedControllerBase():
 		""" All pins LOW """
 		for p in self.pins:
 			GPIO.output(p, GPIO.LOW)
-			
-						
-#How to threading...
-#pool = ThreadPool(4) 
-#results = pool.map(my_function, my_array)
-
 	
 
 
-class SimpleGame():
-	def __init__(self, led_controller, speed):
+class LedMemory():
+	""" Starting with three, each round LEDs 
+		will light up. The player has to memorize in which order the LEDs light up. 
+		After the sequence is shown, the player has to repeat it using the gamepad 
+		buttons A, B, X and Y. If the sequence was repeated correctly, you will get 
+		a new sequence with one more LED lighting up. """
+	def __init__(self, led_controller, joystick, speed):
 		self.LEDC = led_controller
-		self.speed_factor = 1/speed
+		self.joy = joystick
+		self.speed_factor = 1/GAME_SPEED_RECIPROCALS[speed]
 		
 	def forge_sequence(self, lngth):
 		seq=[]
 		for i in range(lngth):
 			p = random.choice(self.LEDC.pins)
 			seq.append(self.LEDC.pins.index(p))
-		#print(seq)
 		return seq
 		
 	def show_sequence(self, seq):
-		#map(lambda a: self.LEDC.phase(*a), zip([[self.LEDC.pins[s]] for s in seq], [1 for i in range(len(seq))]))
 		for s in seq:
 			self.LEDC.blink([s], delay1=self.speed_factor * GAME_SHOW_DELAY, delay2=self.speed_factor * 0.33 * GAME_SHOW_DELAY)
 			
 	def run(self):
 		""" Governs the game process. """
-		print("Starting Simple Game")
+		print("Starting Led Memory...")
 		self.LEDC.progress_mode()
 		self.LEDC.stop()		
 		N=3
@@ -181,6 +181,7 @@ class SimpleGame():
 				# guessing round
 				# wait for input, if any show it. If gamepad button is released, check the guess.
 				if joy.Back():
+					print("Closing Led Memory...")
 					self.LEDC.progress_mode(inv=True)
 					return N-1
 				inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
@@ -202,7 +203,7 @@ class SimpleGame():
 				if no>=N:
 					print()
 					break
-				time.sleep(MAIN_LOOP_DELAY)
+				time.sleep(INPUT_LOOP_DELAY)
 										
 			N=N+1
 		return N
@@ -235,7 +236,7 @@ def polar_coords(x,y):
 def keyboard_mainloop(LEDC):
 	switch_to_joy = 0		
 	while 1:
-		mode = raw_input("Chose mode...\nj - gamepad (Switch to gamepad control) \nr - raupe \nMode: ")
+		mode = raw_input("Command: ")
 		if mode == 'x':			
 			LEDC.stop()	
 			break
@@ -257,18 +258,25 @@ def keyboard_mainloop(LEDC):
 			LEDC.raupe()	
 			LEDC.stop()	
 		elif mode == 't':
+			LEDC.show_off()	
+			LEDC.stop()	
+		elif mode == 'p':
 			LEDC.progress_mode()	
 			LEDC.stop()	
+		elif mode == 'h':
+			print("Menu\n====\nx - quit\nj - switch to gamepad control\ns - change GPIO pin numbers\nd - disco mode\nr - raupe\nt - test mode\np - progress mode")
 		
 	if switch_to_joy:
-		if program_start_dialog() == 'j':
-			joy = xbox.Joystick()
-			joystick_mainloop(joy, LEDC)
-		
+		input_mode, joy = start_routine()
+	
+		if input_mode == 'j':
+			joystick_mainloop(joy, LEDController)	
+		elif input_mode == 'k':
+			keyboard_mainloop(LEDController)
 		
 def joystick_mainloop(joy, LEDC):
 	switch_to_key = 0
-	current_led = -1 % LED_COUNT	
+	current_led = 0 % len(LEDC.pins)	
 	simple_game_speed = 1
 	while 1:
 		if joy.Back():
@@ -304,47 +312,70 @@ def joystick_mainloop(joy, LEDC):
 			simple_game_speed = (simple_game_speed - 1) % 4
 			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0.001, rounds=1)
 		elif joy.Start():
-			# Start the simple game.
-			sg = SimpleGame(LEDController, GAME_SPEED_RECIPROCALS[simple_game_speed])
-			print("Score: " + str(sg.run()))
+			
+			if current_led == 0:
+				sg = LedMemory(LEDController, joy, simple_game_speed)
+				print("Score: " + str(sg.run()))
 			
 		inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
 		LEDC.phase([i for i in range(4) if inpt[i]])
 		
 		#x, y = joy.leftStick()
 		#angle, radius = polar_coords(x,y)
-		time.sleep(MAIN_LOOP_DELAY)
+		time.sleep(INPUT_LOOP_DELAY)
 	
 	if switch_to_key:
-		joy.close()
 		keyboard_mainloop(LEDC)
 
-def program_start_dialog():
-	try:
-		import xbox
-		input_mode = 'j'
-	except:
-		#raise
-		#print('Cannot import xbox script. \nPress "h" for solutions.')
-		input_mode = raw_input("Chose input...\nj - gamepad \nk - keyboard \nInput: ")
-	return input_mode
 
-			
+def determine_input_mode():
+	""" If xboxdrv was installed correctly, this will automatically chose 
+		gamepad as your input device. Falls back to keyboard input style otherwise. """
+	try:
+		print("Importing xbox python module...")
+		global xbox
+		import xbox
+		return 'j'
+	except ImportError:
+		print('Cannot import xbox script. Maybe xboxdrv is missing.')
+	return 'k'
+
+def connect_gamepad():
+	""" If no gamepad can be found, it falls back to keyboard input style. """
+	try:
+		print("Connecting the gamepad...")
+		return xbox.Joystick()
+	except IOError:
+		print("The gamepad cannot be found. Switching to keyboard input...")
+		return 0			
+
+def start_routine():
+	""" Calls determine_input_mode() and connect_gamepad(). Returns the input_mode 
+		and the joystick if one is connected. """
+	input_mode = determine_input_mode()
+	joy = connect_gamepad()
+	
+	if input_mode == 'j' and joy:
+		print("GAMEPAD input style.")
+		return 'j', joy			
+	elif input_mode == 'k' or not joy:
+		print("KEYBOARD input style.")
+		return 'k', joy
 			
 if __name__ == '__main__':
 	
 	LEDController = LedControllerBase(GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4)  
 	print("Initialized led-controller")
 	
-	input_mode = program_start_dialog()
+	input_mode, joy = start_routine()
 	
 	if input_mode == 'j':
-		joy = xbox.Joystick()
 		joystick_mainloop(joy, LEDController)	
-
 	elif input_mode == 'k':
 		keyboard_mainloop(LEDController)
 				
-	print("Goodbye")			
+	print("Goodbye")	
+	if joy:
+		joy.close()		
 	LEDController.stop()
 	GPIO.cleanup()		
