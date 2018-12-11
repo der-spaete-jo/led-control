@@ -6,24 +6,30 @@ import math
 import random
 from itertools import chain, combinations
 
-# Global Constants
+
+# 1 Global Constants
 # Feel free to adjust them to your needs. You may specify more or less than 
 # four GPIO Pins. GPIO_PIN_1 should be the LED furthest to the left. GPIO_PIN_2 
 # should be the LED next to the first one, and so on.
-# GPIO related
+
+# 1.1 GPIO related
 GPIO_PIN_NUMBER_MODE = 1 # 1 for GPIO.BCM, 0 for the other
 GPIO_PIN_1 = 16
 GPIO_PIN_2 = 5
 GPIO_PIN_3 = 25
 GPIO_PIN_4 = 22
-# Game related
-GAME_SPEED_RECIPROCALS = [0.7, 1, 1.3, 1.6]
+
+# 1.2 Game related
+GAME_SHOW_DELAY = 0.5
+GAME_INPUT_DELAY = 0.25
+# 1.2.1 Led Memory
+GAME_SPEED_RECIPROCALS = [0.75, 1, 1.35, 1.8]
+# 1.2.2 Hau den Lukas
 TIME_DECREASE_TABLE = [2, 1.5, 1.25, 1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5, 0.45, 0.4]
 
+# 1.3 Miscellaneous
 INPUT_LOOP_DELAY = 0.001
-GAME_SHOW_DELAY = 0.6
-GAME_INPUT_DELAY = 0.3
-STD_DELAY = 0.15
+STD_DELAY = 0.3
 
 
 
@@ -67,7 +73,7 @@ class LedControllerBase():
 		
 		
 	def disco_mode(self, rounds=100):
-		comb = list(chain.from_iterable(combinations(self.led_count, r) for r in range(len(self.led_count))))
+		comb = list(chain.from_iterable(combinations(self.led_indices, r) for r in range(len(self.led_indices))))
 		#comb = [[], [0], [1], [2], [3], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3], [0, 1, 3]] for 4 pins
 		for i in range(rounds):
 			s = random.random()				
@@ -131,8 +137,129 @@ class LedControllerBase():
 		""" All pins LOW """
 		for p in self.pins:
 			GPIO.output(p, GPIO.LOW)
-	
 
+
+class BinaryCalculator():
+	""" Four LEDs are perfectly suited to show the binary numbers between 0001 and 1111. 
+		This class lets you calculate on this set of numbers.
+	"""
+	def __init__(self, led_controller, joystick):
+		self.LEDC = led_controller
+		self.joy = joystick
+		self.binary_number = [[], [0], [1], [0, 1], [2], [0,2], [1,2], [0,1,2], [3], [0,3], [1,3], [0,1,3], [2,3], [0,2,3], [1,2,3], [0,1,2,3]]
+		# Example: 7 = 1 + 2 + 4 = 2^0 * 2^1 * 2^2 = [0, 1, 2]
+		self.current_number = 0 # decimal system, i.e. corresponds to indices of self.binary_numbers
+	
+	def str_op(self, op):
+		if op == 0:
+			op = '+'
+		elif op == 1:
+			op = '-'
+		elif op == 2:
+			op = '*'
+		elif op == 3:
+			op = '/'
+		return op
+		
+	def str_num(self, num):
+		if num < 10:
+			num = ' {}'.format(num)
+		else:
+			num = str(num) 
+		return num
+		
+	def calculate(self, a, b, op):
+		N = len(self.binary_number)
+		if op == 0:
+			c = a + b 
+		elif op == 1:
+			c =  a - b
+		elif op == 2:
+			c =  a * b
+		elif op == 3:
+			c =  a/b
+		c = c%N
+		return c
+		
+	def change_current_number(self, direction):
+		ledc = self.LEDC
+		joy = self.joy
+		N = len(self.binary_number)
+		old_number = self.current_number
+		start_time = time.time()
+		#delay = abs(self.current_number - old_number) 
+		delay = 0
+		while joy.rightTrigger() or joy.leftTrigger():
+			ledc.phase(self.binary_number[self.current_number])
+			if time.time() > start_time + delay:
+				if direction > 0:
+					self.current_number = (self.current_number + 1) % N
+				elif direction < 0:
+					self.current_number = (self.current_number - 1) % N
+				delay += (1.05 - joy.rightTrigger() - joy.leftTrigger())
+			time.sleep(INPUT_LOOP_DELAY)
+			
+	def run(self):
+		joy = self.joy
+		ledc = self.LEDC
+		print("Starting Binary Calculator...")
+		ledc.progress_mode()
+		ledc.stop()
+		print("Controls:")
+		print("A            - +\nB            - -\nX            - *\nY            - /\nRightBumper  - =\nRightTrigger - next binary number\nLeftTrigger  - previous binary number\nBack         - +\n")
+		a = -1
+		b = -1
+		op = -1
+		pick = []
+		while 1:
+			# Enter a number and confirm with a A, B, X, Y or LeftBumper.
+			ledc.phase(self.binary_number[self.current_number])
+			if joy.Back():
+				print("Closing Binary Calculator...")
+				ledc.progress_mode(inv=True)
+				return True
+			if joy.rightTrigger():					
+				# Switch to the next binary at the given speed
+				self.change_current_number(1)
+			if joy.leftTrigger():
+				self.change_current_number(-1)
+			if joy.rightBumper():
+				if not a<0:
+					b = self.current_number
+					print(" {}".format(self.str_num(b)))
+					print("----")
+					c = self.calculate(a, b, op)
+					print("= {}".format(self.str_num(c))) 
+					self.current_number = c
+					a, b, op = [-1]*3
+					pick = []
+					print()
+										
+			inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
+			pick = [inpt.index(el) for el in inpt if el] if not pick else pick
+			if pick:
+				
+				ledc.blink([0,1,2,3], rounds=2) # alternative: time.sleep(0.2), to prevent the pick from being fired again and again
+				
+				if a<0:
+					a = self.current_number
+					op = pick[0]
+					print("  {}".format(self.str_num(a)))
+					print("{}".format(self.str_op(op)), end="")
+					
+				elif b<0:
+					b = self.current_number
+					a = self.calculate(a, b, op)
+					print(" {}".format(self.str_num(b)))
+					print("= {}".format(self.str_num(a)))
+					self.current_number = a					
+					op = pick[0]
+					print("{}".format(self.str_op(op)), end="")
+					b = -1	
+				pick = []			
+			time.sleep(INPUT_LOOP_DELAY)
+			
+			
 
 class LedMemory():
 	""" Starting with three, each round LEDs 
@@ -160,7 +287,9 @@ class LedMemory():
 		""" Governs the game process. """
 		print("Starting Led Memory...")
 		self.LEDC.progress_mode()
-		self.LEDC.stop()		
+		self.LEDC.stop()
+		print("Controls:")
+		print("A    - LED 1\nB    - LED 2\nX    - LED 3\nY    - LED 4\nBack - close game\n")
 		N=3
 		while 1:
 			# game loop
@@ -311,11 +440,13 @@ def joystick_mainloop(joy, LEDC):
 			# Decrease game speed.
 			simple_game_speed = (simple_game_speed - 1) % 4
 			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0.001, rounds=1)
-		elif joy.Start():
-			
+		elif joy.Start():			
 			if current_led == 0:
 				sg = LedMemory(LEDController, joy, simple_game_speed)
 				print("Score: " + str(sg.run()))
+			elif current_led == 1:
+				sg = BinaryCalculator(LEDController, joy)
+				sg.run()
 			
 		inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
 		LEDC.phase([i for i in range(4) if inpt[i]])
@@ -364,17 +495,19 @@ def start_routine():
 			
 if __name__ == '__main__':
 	
+	print("Starting...")
 	LEDController = LedControllerBase(GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4)  
-	print("Initialized led-controller")
+	print("Initialized led-controller.")
+	LEDController.raupe(rounds = 2, delay=0.1)
 	
-	input_mode, joy = start_routine()
-	
+	input_mode, joy = start_routine()	
 	if input_mode == 'j':
 		joystick_mainloop(joy, LEDController)	
 	elif input_mode == 'k':
 		keyboard_mainloop(LEDController)
 				
-	print("Goodbye")	
+	print("Goodbye")		
+	LEDController.raupe(rounds = 2, delay=0.1, rev = True)
 	if joy:
 		joy.close()		
 	LEDController.stop()
