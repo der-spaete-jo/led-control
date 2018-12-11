@@ -30,10 +30,15 @@ TIME_DECREASE_TABLE = [2, 1.5, 1.25, 1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5, 0.45, 0.4
 # 1.3 Miscellaneous
 INPUT_LOOP_DELAY = 0.001
 STD_DELAY = 0.3
+# The following constant is the smallest value x, that makes sense in
+# ```	ledc.phase([...])
+#		time.sleep(x - joystick.rightTrigger()) ```
+# As rightTrigger is always <= 1, this is always >= 0.05. For smaller values, the  
+# LED won't appear as blinking but as always on and dimmed.
+NO_GOOD_NAME_CONSTANT = 1.05 
 
 
-
-class LedControllerBase():
+class LedControllerBase(object):
 	def __init__(self, *args):
 		self.pins = [a for a in args]
 		self.led_indices = list(range(len(self.pins)))
@@ -92,13 +97,13 @@ class LedControllerBase():
 			time.sleep(delay)
 			
 			
-	def blink(self, code, rounds=1, delay1=STD_DELAY, delay2=-1, independent=False):
+	def blink(self, code, rounds=1, delay1=STD_DELAY, delay2=-1):
 		for i in range(rounds):
-			self.phase(code, delay=delay1, independent=independent)
+			self.phase(code, delay=delay1)
 			self.stop()
 			if i != rounds-1:
 				time.sleep(delay2 if delay2 >= 0 else delay1)
-		return time.time
+		return time.time()
 		
 		
 	def phase_blink(self, code_phase, code_blink, delay=0, rounds=1, delay1=STD_DELAY, delay2=-1):
@@ -120,7 +125,7 @@ class LedControllerBase():
 			code = random.choice(comb)		
 			self.phase(code, 0.2*s)
 		self.stop()
-		return time.time
+		return time.time()
 		
 	
 	def raupe(self, delay=STD_DELAY, rounds=20, rev=False):
@@ -136,7 +141,7 @@ class LedControllerBase():
 				self.phase([j]) if not(rev) else self.phase([pc-j-1])
 				time.sleep(delay)
 		self.stop()
-		return time.time
+		return time.time()
 						
 	
 	def progress_mode(self, delay=0.3, rounds=1, rev=False, inv=False):
@@ -155,7 +160,7 @@ class LedControllerBase():
 				self.phase(list(range(j))) if not(rev) else self.phase([pc-k-1 for k in range(j)])
 				time.sleep(delay)
 		self.stop()
-		return time.time
+		return time.time()
 		
 		
 	def stop(self):
@@ -192,6 +197,84 @@ class LedControllerBase():
 		time.sleep(delay)
 		print("LedControllerBase.disco_mode(rounds=20)")
 		self.disco_mode(rounds=20)
+	
+	
+class AnotherGame():
+	""" Each round is composed of five turns. In each turn, after a random time, 
+		one of the LEDs will light up. The player then has a certain amount of time, 
+		to press the gamepad button that corresponds to the LED. In each round the maximum response 
+		time for the player is decreased by a thenth of a second. 
+	"""
+	def __init__(self, led_controller, joystick):
+		self.LEDC = led_controller
+		self.joy = joystick
+		self.turns_per_round = 4
+		self.time_decrease_table = TIME_DECREASE_TABLE
+	
+	def forge_sequence(self):
+		seq=[]
+		pause = []
+		for i in range(self.turns_per_round):
+			p = random.choice(self.LEDC.led_indices)
+			seq.append(p)
+			q = 0.3 + random.random() * 5
+			pause.append(q)
+		return zip(seq, pause)
+	
+		
+	def run(self):
+		
+		ledc, joy = self.LEDC, self.joy
+		N = 0
+		ledc.progress_mode()
+		time.sleep(0.5)
+		while 1:			
+			seq_pause = self.forge_sequence()
+			ledc.blink(ledc.led_indices, rounds=N)
+			time.sleep(0.5)
+			for t in range(self.turns_per_round):
+				secret, pause = seq_pause[t]
+				checked = False
+				pick = []
+				ledc.blink(list(range(t+1)), rounds=3)
+				ledc.stop()
+				time.sleep(pause)
+				ledc.phase([secret])
+				start_time = time.time()
+				while 1:
+					# responding turn
+					# wait for input, if any show it. If gamepad button is released, check the guess.
+					if self.joy.Back():
+						ledc.progress_mode(inv=True)
+						return N
+				
+					if time.time() > start_time + TIME_DECREASE_TABLE[N] + 0.7:						
+						print("Time is up!")
+						ledc.disco_mode(rounds=20)
+						return N
+												
+					inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
+					pick = [inpt.index(el) for el in inpt if el] if not pick else pick
+					ledc.phase2(pick, independent=True)					
+							
+					if pick and not checked and not any([joy.A(), joy.B(), joy.X(), joy.Y()]):
+						print(str(pick[0]), end=", ")
+						checked = True
+						if len(pick)==1 and secret==pick[0]:
+							checked = False
+							pick = []
+							break
+						else:
+							ledc.phase_blink([secret], [pick[0]], rounds=5)							
+							print("You Lose")
+							self.LEDC.disco_mode(rounds=20)
+							return N
+					
+					time.sleep(INPUT_LOOP_DELAY)
+				
+				ledc.stop()
+			print()
+			N = N+1
 				
 class BinaryCalculator():
 	""" Four LEDs are perfectly suited to show the binary numbers between 0001 and 1111. 
@@ -250,7 +333,7 @@ class BinaryCalculator():
 					self.current_number = (self.current_number + 1) % N
 				elif direction < 0:
 					self.current_number = (self.current_number - 1) % N
-				delay += (1.05 - joy.rightTrigger() - joy.leftTrigger())
+				delay += (NO_GOOD_NAME_CONSTANT - joy.rightTrigger() - joy.leftTrigger())
 			time.sleep(INPUT_LOOP_DELAY)
 			
 	def run(self):
@@ -485,23 +568,26 @@ def joystick_mainloop(joy, LEDC):
 			LEDC.stop()
 		elif joy.leftTrigger():
 			# Let the current LED blink.
-			LEDC.blink([current_led], 1.01-joy.leftTrigger())							
+			LEDC.blink([current_led], delay1=NO_GOOD_NAME_CONSTANT-joy.leftTrigger())							
 		elif joy.rightBumper():
 			# Increase game speed.
 			simple_game_speed = (simple_game_speed + 1) % 4	
-			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0.001, rounds=1)		# If delay2=0, then delay2=delay1... not what we want.				
+			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)				
 		elif joy.leftBumper():
 			# Decrease game speed.
 			simple_game_speed = (simple_game_speed - 1) % 4
-			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0.001, rounds=1)
+			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)
 		elif joy.Start():			
 			if current_led == 0:
 				sg = LedMemory(LEDController, joy, simple_game_speed)
 				print("Score: " + str(sg.run()))
 			elif current_led == 1:
 				sg = BinaryCalculator(LEDController, joy)
-				sg.run()
-			
+				sg.run()			
+			elif current_led == 2:
+				sg = AnotherGame(LEDController, joy)
+				print("Score: " + str(sg.run()))
+				
 		inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
 		LEDC.phase([i for i in range(4) if inpt[i]])
 		
@@ -554,7 +640,7 @@ if __name__ == '__main__':
 	print("Initialized led-controller.")
 	LEDController.raupe(rounds = 2, delay=0.1)
 	
-	input_mode, joy = start_routine()	
+	input_mode, joy = start_routine()
 	if input_mode == 'j':
 		joystick_mainloop(joy, LEDController)	
 	elif input_mode == 'k':
