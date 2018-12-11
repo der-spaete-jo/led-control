@@ -3,15 +3,16 @@
 Control LEDs plugged to a Raspberry Pi using a gamepad/xbox-controller or 
 your keyboard. If using a gamepad, you can access some simple games and programs.
 
-## Led Memory 
+## 1.1 Led Memory 
 
 Starting with three, each round LEDs will light up. 
 The player has to memorize in which order the LEDs light up. 
 When the sequence is shown, the player has to repeat it using the gamepad 
 buttons A, B, X and Y. If the sequence was repeated correctly, you will get 
-a new sequence with one more LED lighting up. 
+a new sequence with one more LED lighting up. This game is associated to 
+the first LED.
 
-## Binary Calculator
+## 1.2 Binary Calculator
 
 Lets you add and subtract in the space of integers modulo 16. Your input and 
 the results are represented using the four LEDs. To read it, follow this 
@@ -24,14 +25,25 @@ for i in range(4):
 ```
 E.g.: If the LED furthest to the left and the LED furthest to the right are on, 
 then n = 2^0 + 2^3 = 1 + 8 = 9. If both LEDs in the middle are on, then n = 
-2^1 + 2^2 = 2 + 4 = 6. 
+2^1 + 2^2 = 2 + 4 = 6. Don't worry, if you don't get it immediately. The 
+console always prints out the corresponding decimal number, so that you can 
+learn to read binary numbers. This program is associated to the second LED.
 
-## Other Uses
+## 1.3 Nothing
+
+This game is associated to the first LED.
+
+## 1.4 Nothing
+
+This game is associated to the first LED.
+
+
+## 1.5 Other Uses
 
 This repo can also be a starting point for any other "control"-like project 
 on the RPi, e.g. a robot.
 
-# Components
+# 2 Components
 
  - Raspberry Pi
 
@@ -48,14 +60,14 @@ on the RPi, e.g. a robot.
  - USB-dongle if it is a wireless gamepad
 
 
-# Installation
+# 3 Installation
 
-## Hardware
+## 3.1 Hardware
 
 Use the image circuit.jpg to prepare the proper circuit. Double check it before 
 plugging the jumper cables to your raspberry pi. 
 
-## Software
+## 3.2 Software
 
 Open a terminal on your RPi
 ```
@@ -81,10 +93,10 @@ cd led-control
 sudo python lights.py
 ```
 
-# Gamepad Control
+# 4 Gamepad Control
 
 
-## Main Menu
+## 4.1 Main Menu
 
 Back - close application
 
@@ -100,7 +112,7 @@ Right Bumper - increase Led Memory game speed
 
 Left Bumper - decrease Led Memory game speed
 
-Start - start simple game
+Start - start the game/program associated to the current LED
 
 Left Trigger - blink current LED
 
@@ -113,7 +125,7 @@ DPAD Up - show all predefined LED light patterns
 DPAD Down - switch to keyboard input
 
 
-## Led Memory
+## 4.2 Led Memory
 
 Back - close game
 
@@ -125,27 +137,27 @@ X - LED 3
 
 Y - LED 4
 
-### A Word Of Warning
+### 4.2.1 A Word Of Warning
 
 After a Led Memory game started, gamepad commands will only be processed during the 
 players "turn". This is True for A, B, X, Y, but most importantly also for 
 the Back button. This means you cannot quit the game, when the game is  
 showing you a sequence. (This is not a feature, but rather bad design.)
 
-## Binary Calculator
+## 4.3 Binary Calculator
 
 Please start the program and refer to the console output. To start Binary 
 Calculator, chose the second LED using DPAD Left and press the Start button 
 on your gamepad. 
 
 
-# Keyboard Control
+# 5 Keyboard Control
 
 Please start the script `python lights.py`, choose keyboard as your input mode 
 and hit "h". Note that ommiting `sudo` in `sudo python lights.py` should 
 automatically result in keyboard input style. 
 
-# Issues
+# 6 Issues
 
 If the script is exited ungracefully (e.g. by an exception or hitting "str+c"), 
 the gamepad may not work properly when restarting the script. 
@@ -166,7 +178,7 @@ starting. Just issue the command again in this case.
 
 Switching between gamepad and keyboard input style is very buggy. 
 
-# Thanks
+# 7 Thanks
 
 Thanks to Steven Jacobs for his xbox python module FRC4564/Xbox. 
 Thanks to Felix at [tutorials-raspberrypi](https://tutorials-raspberrypi.de) for his wonderful tutorials 
