@@ -46,44 +46,90 @@ class LedControllerBase():
 		# Set directions of pins.
 		for p in self.pins:
 			GPIO.setup(p, GPIO.OUT)
-		
+	
 	def phase(self, code, delay=0):		
-		""" Light up all specified LEDs.
+		""" Core method of the hole script: Light up all specified LEDs.
 			<code> is a list of numbers corresponding to the indices of the list self.pins, 
-			i.e. 1 correspondes to the LED plugged to GPIO_PIN_2 """
+			i.e. 1 correspondes to the LED plugged to GPIO_PIN_2 
+		"""
 		status = [GPIO.HIGH if self.pins.index(p) in code else GPIO.LOW for p in self.pins]
 		map(lambda a: GPIO.output(*a), zip(self.pins, status))
-		time.sleep(delay)
-			
+		if delay:
+			time.sleep(delay)
 		
-	def test(self):
-		for i in range(len(self.pins)):
-			self.blink([i], STD_DELAY)
-		self.stop()
-		return time.time
-		
+	def phase2(self, code, delay=0, independent=False, rev=False, inv=False):		
+		""" [skip this on first read] More sophisticated version of phase.
+			If <independent> is True, LEDs not specified in code keep their state.
+			If <rev> is True, LEDs specified in code, will be set to GPIO.LOW, i.e. 
+			they will be turned off.
+			If <inv> is True, code will be reset to all LEDs that are not in code.
+			The difference between <inv> and <rev> is only visible when <independent>
+			is set to True.
 			
-	def blink(self, code, delay1=STD_DELAY, delay2=0, rounds=1):
+		"""
+		status_A = GPIO.HIGH
+		status_B = GPIO.LOW
+		if rev:
+			# , then interchange the stati
+			C = status_B
+			status_B = status_A
+			status_A = C
+		if inv:
+			# , then reset code to its difference with all pins
+			code = list(set(self.led_indices).difference(code))
+			
+		# Prepare list of lists, each holding a pin number and its desired status
+		if independent:
+			status = [status_A for idx in code]
+			pin_status = zip([p for p in self.pins if self.pins.index(p) in code], status)
+		else:
+			status = [status_A if self.pins.index(p) in code else status_B for p in self.pins]
+			pin_status = zip(self.pins, status)
+			
+		# Set GPIO pin stati
+		map(lambda a: GPIO.output(*a), pin_status)
+		if delay:
+			time.sleep(delay)
+			
+			
+	def blink(self, code, rounds=1, delay1=STD_DELAY, delay2=-1, independent=False):
 		for i in range(rounds):
-			self.phase(code)
-			time.sleep(delay1)
+			self.phase(code, delay=delay1, independent=independent)
 			self.stop()
-			time.sleep(delay2 if delay2 else delay1)
+			if i != rounds-1:
+				time.sleep(delay2 if delay2 >= 0 else delay1)
 		return time.time
 		
 		
+	def phase_blink(self, code_phase, code_blink, delay=0, rounds=1, delay1=STD_DELAY, delay2=-1):
+		self.phase(code_phase, delay=delay)
+		delay2 = delay2 if delay2 >= 0 else delay1
+		for i in range(rounds):
+			self.phase2(code_blink, delay=delay1, independent=True)
+			self.phase2(code_blink, delay=delay2, independent=True, rev=True)
+	
+				
 	def disco_mode(self, rounds=100):
+		""" Chose a subset of all pin indices randomly and phase them for 
+			a random amount of time.
+		"""
 		comb = list(chain.from_iterable(combinations(self.led_indices, r) for r in range(len(self.led_indices))))
 		#comb = [[], [0], [1], [2], [3], [0, 1], [0, 2], [0, 3], [1, 2], [1, 3], [2, 3], [0, 1, 2], [1, 2, 3], [0, 2, 3], [0, 1, 3]] for 4 pins
 		for i in range(rounds):
-			s = random.random()				
-			self.phase(random.choice(comb))
-			time.sleep(0.2*s)
+			s = random.random()	
+			code = random.choice(comb)		
+			self.phase(code, 0.2*s)
 		self.stop()
 		return time.time
 		
 	
 	def raupe(self, delay=STD_DELAY, rounds=20, rev=False):
+		""" 
+			Runs through all LEDs from left to right. Switches one LED on 
+			at a time. After a delay it advances to the next LED, turning the 
+			previous one off and the next one on.
+			<rev> ... from right to left
+		"""
 		pc = len(self.pins)
 		for i in range(rounds):
 			for j in range(pc):
@@ -94,6 +140,11 @@ class LedControllerBase():
 						
 	
 	def progress_mode(self, delay=0.3, rounds=1, rev=False, inv=False):
+		""" This memes a progress bar 
+			Successively switch on LEDs from left to right
+			<rev> ... from right to left
+			<inv> Successively switch off LEDs
+		"""
 		pc = len(self.pins)
 		for i in range(rounds):
 			for j in range(pc):
@@ -106,12 +157,21 @@ class LedControllerBase():
 		self.stop()
 		return time.time
 		
-	def show_off(self):
+		
+	def stop(self):
+		""" All pins LOW 
+			Equivalent to self.phase2(self.pins, rev=True)
+		"""
+		for p in self.pins:
+			GPIO.output(p, GPIO.LOW)
+	
+	# More ideas for blinking patterns:
+	# 	alternate blink: code1, code2 -> alternate phase(code1) and phase(code2)
+	#	...
+		
+	def test(self):
 		print("Showing all modes")
 		delay=0.5
-		print("LedControllerBase.test()")
-		self.test()
-		time.sleep(delay)
 		print("LedControllerBase.raupe(rounds=2)")
 		self.raupe(rounds=2)
 		time.sleep(delay)
@@ -133,12 +193,6 @@ class LedControllerBase():
 		print("LedControllerBase.disco_mode(rounds=20)")
 		self.disco_mode(rounds=20)
 				
-	def stop(self):
-		""" All pins LOW """
-		for p in self.pins:
-			GPIO.output(p, GPIO.LOW)
-
-
 class BinaryCalculator():
 	""" Four LEDs are perfectly suited to show the binary numbers between 0001 and 1111. 
 		This class lets you calculate on this set of numbers.
@@ -387,7 +441,7 @@ def keyboard_mainloop(LEDC):
 			LEDC.raupe()	
 			LEDC.stop()	
 		elif mode == 't':
-			LEDC.show_off()	
+			LEDC.test()	
 			LEDC.stop()	
 		elif mode == 'p':
 			LEDC.progress_mode()	
@@ -418,7 +472,7 @@ def joystick_mainloop(joy, LEDC):
 			break
 		elif joy.dpadUp():
 			# Show all functions and print their names to console.
-			LEDC.show_off()
+			LEDC.test()
 		elif joy.dpadRight():
 			# Switch to the next LED.
 			current_led = (current_led + 1) % 4
