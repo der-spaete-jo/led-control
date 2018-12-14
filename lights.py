@@ -24,11 +24,11 @@ GAME_SHOW_DELAY = 0.5
 GAME_INPUT_DELAY = 0.25
 # 1.2.1 Led Memory
 GAME_SPEED_RECIPROCALS = [0.75, 1, 1.35, 1.8]
-# 1.2.2 Hau den Lukas
-TIME_DECREASE_TABLE = [2, 1.5, 1.25, 1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5, 0.45, 0.4]
+# 1.2.2 Another Game
+TIME_DECREASE_TABLE = [1.25, 1.1, 0.9, 0.8, 0.75, 0.7, 0.6, 0.5, 0.45, 0.4, 0.3, 0.2, 0, 0, 0, 0]
 
 # 1.3 Miscellaneous
-INPUT_LOOP_DELAY = 0.001
+INPUT_LOOP_DELAY = 0.01
 STD_DELAY = 0.3
 # The following constant is the smallest value x, that makes sense in
 # ```	ledc.phase([...])
@@ -48,10 +48,12 @@ class LedControllerBase(object):
 		# Call GPIO pins via their number.
 		GPIO.setmode(GPIO.BCM)
 
-		# Set directions of pins.
+		# Set direction and frequency of pins.
 		for p in self.pins:
-			GPIO.setup(p, GPIO.OUT)
-	
+			GPIO.setup(p, GPIO.OUT)		
+			
+			
+			
 	def phase(self, code, delay=0):		
 		""" Core method of the hole script: Light up all specified LEDs.
 			<code> is a list of numbers corresponding to the indices of the list self.pins, 
@@ -62,7 +64,7 @@ class LedControllerBase(object):
 		if delay:
 			time.sleep(delay)
 		
-	def phase2(self, code, delay=0, independent=False, rev=False, inv=False):		
+	def phase2(self, code, delay=0, independent=False, rev=False, inv=False, stop=False):		
 		""" [skip this on first read] More sophisticated version of phase.
 			If <independent> is True, LEDs not specified in code keep their state.
 			If <rev> is True, LEDs specified in code, will be set to GPIO.LOW, i.e. 
@@ -75,15 +77,15 @@ class LedControllerBase(object):
 		status_A = GPIO.HIGH
 		status_B = GPIO.LOW
 		if rev:
-			# , then interchange the stati
+			# , then interchange the stati.
 			C = status_B
 			status_B = status_A
 			status_A = C
 		if inv:
-			# , then reset code to its difference with all pins
+			# , then reset code to its difference with all pins.
 			code = list(set(self.led_indices).difference(code))
 			
-		# Prepare list of lists, each holding a pin number and its desired status
+		# Prepare list of lists, each holding a pin number and its desired status.
 		if independent:
 			status = [status_A for idx in code]
 			pin_status = zip([p for p in self.pins if self.pins.index(p) in code], status)
@@ -91,18 +93,20 @@ class LedControllerBase(object):
 			status = [status_A if self.pins.index(p) in code else status_B for p in self.pins]
 			pin_status = zip(self.pins, status)
 			
-		# Set GPIO pin stati
+		# Set GPIO pin stati.
 		map(lambda a: GPIO.output(*a), pin_status)
+		# Optionally sleep and stop.
 		if delay:
 			time.sleep(delay)
+		if stop:
+			self.phase2(code, independent=independent, rev=True, inv=inv)
 			
 			
 	def blink(self, code, rounds=1, delay1=STD_DELAY, delay2=-1):
 		for i in range(rounds):
 			self.phase(code, delay=delay1)
 			self.stop()
-			if i != rounds-1:
-				time.sleep(delay2 if delay2 >= 0 else delay1)
+			time.sleep(delay2 if delay2 >= 0 else delay1)
 		return time.time()
 		
 		
@@ -113,6 +117,22 @@ class LedControllerBase(object):
 			self.phase2(code_blink, delay=delay1, independent=True)
 			self.phase2(code_blink, delay=delay2, independent=True, rev=True)
 	
+	def start_pwm(self, code, freq=100):
+		idx = code[0]
+		pwm_pin = GPIO.PWM(self.pins[idx], freq)
+		pwm_pin.start(0)
+		return pwm_pin
+		
+	def dimm(self, pwm_pin, delay=0.1, freq=100, dc=50):
+		# before a call to dimm: pwm_pin = self.start_pwm(code=code, freq=freq)	
+		pwm_pin.ChangeDutyCycle(dc)
+		time.sleep(delay)
+		# after the call: self.stop_pwm(pwm_pin)
+		
+	def stop_pwm(self, pwm_pin):
+		pwm_pin.stop()
+		GPIO.cleanup()
+		self.post_init()
 				
 	def disco_mode(self, rounds=100):
 		""" Chose a subset of all pin indices randomly and phase them for 
@@ -172,8 +192,9 @@ class LedControllerBase(object):
 	
 	# More ideas for blinking patterns:
 	# 	alternate blink: code1, code2 -> alternate phase(code1) and phase(code2)
-	#	...
-		
+	#	beat/disco: blink with a given bpm
+	
+	
 	def test(self):
 		print("Showing all modes")
 		delay=0.5
@@ -198,6 +219,88 @@ class LedControllerBase(object):
 		print("LedControllerBase.disco_mode(rounds=20)")
 		self.disco_mode(rounds=20)
 	
+
+class LedGameController(LedControllerBase):
+	def __init__(self, *args):
+		super(LedGameController, self).__init__(*args)
+
+class LedPatternRepeater(object):
+	""" Create a pattern and show it.
+	"""
+	def __init__(self, led_controller, joystick):
+		self.LEDC = led_controller
+		self.joy = joystick
+		self.pattern = []
+		
+	def show_pattern(self):
+		for pat in self.pattern:
+			self.LEDC.phase2(pat[0], delay=pat[1], independent=True)
+		self.LEDC.stop()
+		
+	def define_pattern(self):
+		print("Please define your new pattern by pressing A, B, X and Y buttons")
+		ledc, joy = self.LEDC, self.joy
+		pattern = []
+		change_pick = []
+		start_pause = time.time()
+		while 1:
+			
+			if self.joy.Back():
+				self.pattern = pattern
+				print("Saved new pattern:")
+				print(self.pattern)
+				ledc.progress_mode()
+				return
+			
+			inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
+			pick = [inpt.index(el) for el in inpt if el]
+			
+			ledc.phase2(pick, independent=True)					
+					
+			if pick:
+				print(pick)
+				end_pause = time.time()
+				pattern.append([[], end_pause-start_pause])
+				start_time = time.time()
+				while 1:
+					change_inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
+					change_pick = [change_inpt.index(el) for el in change_inpt if el]
+					
+					if change_pick != pick:
+						if change_pick:
+							ledc.phase2(change_pick, independent=True)
+						else:
+							ledc.stop()
+						print(change_pick)
+						end_time = time.time()
+						pattern.append([pick, end_time-start_time])
+						start_pause = time.time()
+						break
+					time.sleep(INPUT_LOOP_DELAY)
+		
+			time.sleep(INPUT_LOOP_DELAY) 
+		
+	def run(self):
+		
+		ledc, joy = self.LEDC, self.joy
+		ledc.progress_mode()
+		time.sleep(0.5)
+		while 1:
+			if self.joy.Back():
+				ledc.progress_mode(inv=True)
+				return
+			
+			elif self.joy.dpadDown():
+				self.define_pattern()
+				
+			elif self.joy.dpadUp():
+				if self.pattern:
+					self.show_pattern()
+				else:
+					self.LEDC.test()
+					
+			time.sleep(INPUT_LOOP_DELAY)
+		
 	
 class AnotherGame():
 	""" Each round is composed of five turns. In each turn, after a random time, 
@@ -235,6 +338,7 @@ class AnotherGame():
 			for t in range(self.turns_per_round):
 				secret, pause = seq_pause[t]
 				checked = False
+				#old_pick = 0
 				pick = []
 				ledc.blink(list(range(t+1)), rounds=3)
 				ledc.stop()
@@ -248,13 +352,14 @@ class AnotherGame():
 						ledc.progress_mode(inv=True)
 						return N
 				
-					if time.time() > start_time + TIME_DECREASE_TABLE[N] + 0.7:						
+					if time.time() > start_time + TIME_DECREASE_TABLE[N] + 0.25:						
 						print("Time is up!")
 						ledc.disco_mode(rounds=20)
 						return N
 												
 					inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
-					pick = [inpt.index(el) for el in inpt if el] if not pick else pick
+					pick = [inpt.index(el) for el in inpt if el] if not pick else pick #old_pick == pick else old_pick
+					
 					ledc.phase2(pick, independent=True)					
 							
 					if pick and not checked and not any([joy.A(), joy.B(), joy.X(), joy.Y()]):
@@ -270,6 +375,7 @@ class AnotherGame():
 							self.LEDC.disco_mode(rounds=20)
 							return N
 					
+					#old_pick = pick
 					time.sleep(INPUT_LOOP_DELAY)
 				
 				ledc.stop()
@@ -418,7 +524,7 @@ class LedMemory():
 		
 	def show_sequence(self, seq):
 		for s in seq:
-			self.LEDC.blink([s], delay1=self.speed_factor * GAME_SHOW_DELAY, delay2=self.speed_factor * 0.33 * GAME_SHOW_DELAY)
+			self.LEDC.blink([s], delay1=self.speed_factor * GAME_SHOW_DELAY, delay2=self.speed_factor * GAME_SHOW_DELAY)
 			
 	def run(self):
 		""" Governs the game process. """
@@ -540,9 +646,9 @@ def keyboard_mainloop(LEDC):
 		elif input_mode == 'k':
 			keyboard_mainloop(LEDController)
 		
-def joystick_mainloop(joy, LEDC):
+def joystick_mainloop(ledc, joy):
 	switch_to_key = 0
-	current_led = 0 % len(LEDC.pins)	
+	current_led = 0 % len(ledc.pins)	
 	simple_game_speed = 1
 	while 1:
 		if joy.Back():
@@ -555,48 +661,62 @@ def joystick_mainloop(joy, LEDC):
 			break
 		elif joy.dpadUp():
 			# Show all functions and print their names to console.
-			LEDC.test()
+			ledc.test()
 		elif joy.dpadRight():
 			# Switch to the next LED.
-			current_led = (current_led + 1) % 4
-			LEDC.phase([current_led], 0.3)
-			LEDC.stop()
+			current_led = (current_led + 1) % len(ledc.pins)
+			ledc.phase([current_led], 0.3)
+			ledc.stop()
 		elif joy.dpadLeft():
 			# Switch to the previous LED.
-			current_led = (current_led - 1) % 4
-			LEDC.phase([current_led], 0.3)
-			LEDC.stop()
+			current_led = (current_led - 1) % len(ledc.pins)
+			ledc.phase([current_led], 0.3)
+			ledc.stop()
 		elif joy.leftTrigger():
 			# Let the current LED blink.
-			LEDC.blink([current_led], delay1=NO_GOOD_NAME_CONSTANT-joy.leftTrigger())							
+			ledc.blink([current_led], delay1=0.5*(NO_GOOD_NAME_CONSTANT-joy.leftTrigger()))							
+		elif joy.rightTrigger():
+			# Dimm the current LED.
+			old_led = current_led
+			pwm_pin = ledc.start_pwm([current_led], 50)
+			while 1:
+				ledc.dimm(pwm_pin, dc=100*joy.rightTrigger())
+				if joy.rightTrigger()<0.05:
+					ledc.stop_pwm(pwm_pin)
+					ledc.stop()
+					break
+			current_led = old_led
 		elif joy.rightBumper():
 			# Increase game speed.
-			simple_game_speed = (simple_game_speed + 1) % 4	
-			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)				
+			simple_game_speed = (simple_game_speed + 1) % len(GAME_SPEED_RECIPROCALS)	
+			ledc.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)				
 		elif joy.leftBumper():
 			# Decrease game speed.
-			simple_game_speed = (simple_game_speed - 1) % 4
-			LEDC.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)
+			simple_game_speed = (simple_game_speed - 1) % len(GAME_SPEED_RECIPROCALS)
+			ledc.blink(list(range(simple_game_speed+1)), delay1=0.5, delay2=0, rounds=1)
 		elif joy.Start():			
 			if current_led == 0:
-				sg = LedMemory(LEDController, joy, simple_game_speed)
+				sg = LedMemory(ledc, joy, simple_game_speed)
 				print("Score: " + str(sg.run()))
 			elif current_led == 1:
-				sg = BinaryCalculator(LEDController, joy)
+				sg = BinaryCalculator(ledc, joy)
 				sg.run()			
 			elif current_led == 2:
-				sg = AnotherGame(LEDController, joy)
+				sg = AnotherGame(ledc, joy)
 				print("Score: " + str(sg.run()))
+			elif current_led == 3:
+				sg = LedPatternRepeater(ledc, joy)
+				sg.run()
 				
 		inpt = [joy.A(), joy.B(), joy.X(), joy.Y()]
-		LEDC.phase([i for i in range(4) if inpt[i]])
+		ledc.phase([i for i in range(4) if inpt[i]])
 		
 		#x, y = joy.leftStick()
 		#angle, radius = polar_coords(x,y)
 		time.sleep(INPUT_LOOP_DELAY)
 	
 	if switch_to_key:
-		keyboard_mainloop(LEDC)
+		keyboard_mainloop(ledc)
 
 
 def determine_input_mode():
@@ -622,33 +742,41 @@ def connect_gamepad():
 
 def start_routine():
 	""" Calls determine_input_mode() and connect_gamepad(). Returns the input_mode 
-		and the joystick if one is connected. """
+		and the joystick if one is connected. 
+	"""		
+	print("Starting...")
+	ledc = LedControllerBase(GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4)  
+	print("Initialized led-controller.")
+	ledc.raupe(rounds = 2, delay=0.1)
+		
 	input_mode = determine_input_mode()
 	joy = connect_gamepad()
 	
 	if input_mode == 'j' and joy:
 		print("GAMEPAD input style.")
-		return 'j', joy			
+		return 'j', ledc, joy			
 	elif input_mode == 'k' or not joy:
 		print("KEYBOARD input style.")
-		return 'k', joy
+		return 'k', ledc, joy
+	
+def exit_routine(ledc, joy):
+	print("Goodbye")	
+	if joy:
+		joy.close()		
+	ledc.stop()
+	GPIO.cleanup()		
+
 			
 if __name__ == '__main__':
 	
-	print("Starting...")
-	LEDController = LedControllerBase(GPIO_PIN_1, GPIO_PIN_2, GPIO_PIN_3, GPIO_PIN_4)  
-	print("Initialized led-controller.")
-	LEDController.raupe(rounds = 2, delay=0.1)
+	input_mode, ledc, joy = start_routine()
+	try:
+		if input_mode == 'j':
+			joystick_mainloop(ledc, joy)	
+		elif input_mode == 'k':
+			keyboard_mainloop(ledc)
+	except KeyboardInterrupt, SystemExit:			
+		exit_routine(ledc, joy)		
 	
-	input_mode, joy = start_routine()
-	if input_mode == 'j':
-		joystick_mainloop(joy, LEDController)	
-	elif input_mode == 'k':
-		keyboard_mainloop(LEDController)
-				
-	print("Goodbye")		
-	LEDController.raupe(rounds = 2, delay=0.1, rev = True)
-	if joy:
-		joy.close()		
-	LEDController.stop()
-	GPIO.cleanup()		
+	ledc.raupe(rounds = 2, delay=0.1, rev = True)
+	exit_routine(ledc, joy)
