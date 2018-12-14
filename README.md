@@ -64,7 +64,7 @@ on the RPi, e.g. a robot.
 
 ## 3.1 Hardware
 
-Use the image circuit.jpg to prepare the proper circuit. Double check it before 
+Use the image circuit.pdf to prepare the proper circuit. Double check it before 
 plugging the jumper cables to your raspberry pi. 
 
 ## 3.2 Software
